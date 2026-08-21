@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>群积分签到系统 · 管理面板</title>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #171e2e;
+    --panel-2: #1e2740;
+    --border: #2a3550;
+    --text: #e6ebf5;
+    --muted: #8b96ad;
+    --accent: #5b8cff;
+    --accent-2: #37c99e;
+    --danger: #f4655f;
+    --warn: #f5b94a;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    font-size: 14px; line-height: 1.55; padding: 20px 24px 40px;
+  }
+  h1 { font-size: 18px; margin-bottom: 4px; display: flex; align-items: center; gap: 10px; }
+  .sub { color: var(--muted); font-size: 12.5px; margin-bottom: 18px; }
+
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+  .tab {
+    padding: 8px 16px; border-radius: 999px; cursor: pointer;
+    background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+    transition: all .15s; user-select: none;
+  }
+  .tab:hover { color: var(--text); border-color: var(--accent); }
+  .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+  .card .label { color: var(--muted); font-size: 12px; }
+  .card .value { font-size: 26px; font-weight: 700; margin-top: 6px; }
+  .card .value.accent { color: var(--accent); }
+  .card .value.green { color: var(--accent-2); }
+  .card .value.warn { color: var(--warn); }
+
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+  .panel h2 { font-size: 14.5px; margin-bottom: 12px; color: var(--text); }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  tr:hover td { background: var(--panel-2); }
+
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  input, select, textarea {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 8px 10px; font-size: 13px; outline: none; width: auto;
+  }
+  input:focus, select:focus { border-color: var(--accent); }
+  input[type=number] { width: 110px; }
+  .text-input { flex: 1; min-width: 140px; }
+  textarea { width: 100%; resize: vertical; min-height: 60px; }
+  label { color: var(--muted); font-size: 12.5px; }
+
+  .btn {
+    padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer;
+    background: var(--accent); color: #fff; font-size: 13px; transition: filter .15s;
+  }
+  .btn:hover { filter: brightness(1.1); }
+  .btn.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  .btn.ghost:hover { color: var(--text); border-color: var(--accent); }
+  .btn.danger { background: transparent; border: 1px solid var(--danger); color: var(--danger); }
+  .btn.danger:hover { background: var(--danger); color: #fff; }
+  .btn.sm { padding: 4px 10px; font-size: 12px; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  .msg { padding: 8px 12px; border-radius: 8px; margin-top: 10px; font-size: 12.5px; display: none; }
+  .msg.ok { display: block; background: rgba(55,201,158,.12); color: var(--accent-2); }
+  .msg.err { display: block; background: rgba(244,101,95,.12); color: var(--danger); }
+
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--panel-2); color: var(--muted); }
+  .badge.warn { background: rgba(245,185,74,.15); color: var(--warn); }
+  .empty { color: var(--muted); text-align: center; padding: 24px 0; }
+
+  .product-form { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-top: 12px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .tags-options { display: inline-flex; gap: 8px; align-items: center; }
+</style>
+</head>
+<body>
+<h1>🪙 群积分签到系统</h1>
+<div class="sub">数据实时来自插件后端 · 所有修改立即写入 points_data.json</div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="overview">总览</div>
+  <div class="tab" data-tab="ranking">排行榜</div>
+  <div class="tab" data-tab="users">用户管理</div>
+  <div class="tab" data-tab="products">商品管理</div>
+  <div class="tab" data-tab="settings">设置</div>
+</div>
+
+<!-- 总览 -->
+<section id="tab-overview">
+  <div class="cards">
+    <div class="card"><div class="label">用户数</div><div class="value accent" id="ov-users">-</div></div>
+    <div class="card"><div class="label">累计积分</div><div class="value" id="ov-points">-</div></div>
+    <div class="card"><div class="label">今日签到</div><div class="value green" id="ov-today">-</div></div>
+    <div class="card"><div class="label">商店商品</div><div class="value warn" id="ov-products">-</div></div>
+  </div>
+  <div class="panel">
+    <h2>当前配置摘要</h2>
+    <table>
+      <tbody id="ov-config"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- 排行榜 -->
+<section id="tab-ranking" style="display:none">
+  <div class="panel">
+    <div class="row">
+      <div>
+        <label>展示人数</label>
+        <input type="number" id="rank-top" value="20" min="1" max="100" />
+      </div>
+      <div>
+        <label>群 ID（留空为全局）</label>
+        <input type="text" id="rank-group" class="text-input" placeholder="可选" />
+      </div>
+      <button class="btn" id="rank-refresh">刷新</button>
+    </div>
+    <table>
+      <thead><tr><th>排名</th><th>用户</th><th>群</th><th>积分</th><th>连续签到</th><th>累计签到</th></tr></thead>
+      <tbody id="rank-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- 用户管理 -->
+<section id="tab-users" style="display:none">
+  <div class="panel">
+    <div class="row">
+      <input type="text" id="user-keyword" class="text-input" placeholder="搜索昵称或用户 ID" />
+      <select id="user-group"><option value="">全部群</option></select>
+      <button class="btn" id="user-refresh">搜索</button>
+    </div>
+    <table>
+      <thead><tr><th>昵称</th><th>用户 ID</th><th>群 ID</th><th>积分</th><th>连续签到</th><th>操作</th></tr></thead>
+      <tbody id="user-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- 商品管理 -->
+<section id="tab-products" style="display:none">
+  <div class="panel">
+    <div class="row">
+      <h2 style="flex:1;margin:0">商品列表</h2>
+      <button class="btn" id="prod-new">＋ 新增商品</button>
+    </div>
+    <table>
+      <thead><tr><th>图标</th><th>名称</th><th>描述</th><th>价格</th><th>库存</th><th>操作</th></tr></thead>
+      <tbody id="product-body"></tbody>
+    </table>
+    <div class="product-form" id="product-form" style="display:none">
+      <h2 style="margin-bottom:10px" id="product-form-title">新增商品</h2>
+      <input type="hidden" id="p-id" />
+      <div class="grid2">
+        <div><label>图标 emoji</label><input type="text" id="p-icon" class="text-input" placeholder="例如 🎁" /></div>
+        <div><label>商品编号 id</label><input type="text" id="p-key" class="text-input" placeholder="例如 gift" /></div>
+      </div>
+      <div class="grid2">
+        <div><label>商品名称</label><input type="text" id="p-name" class="text-input" placeholder="名称" /></div>
+        <div><label>价格（积分）</label><input type="number" id="p-cost" min="0" placeholder="100" /></div>
+      </div>
+      <div><label>库存（-1 为不限量）</label><input type="number" id="p-stock" min="-1" value="-1" style="width:140px" /></div>
+      <div><label>描述</label><textarea id="p-desc" placeholder="兑换后能获得什么，展示给群友看"></textarea></div>
+      <div class="row" style="margin:12px 0 0">
+        <button class="btn" id="prod-save">保存</button>
+        <button class="btn ghost" id="prod-cancel">取消</button>
+        <span class="msg" id="prod-msg"></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 设置 -->
+<section id="tab-settings" style="display:none">
+  <div class="panel">
+    <h2>积分与抽奖</h2>
+    <div class="grid2">
+      <div><label>每日签到基础积分</label><input type="number" id="s-signin" class="text-input" min="0" /></div>
+      <div><label>连续签到加成上限</label><input type="number" id="s-streak" class="text-input" min="0" /></div>
+      <div><label>抽奖消耗积分</label><input type="number" id="s-lotkey" class="text-input" min="0" /></div>
+      <div><label>排行榜默认展示人数</label><input type="number" id="s-rank" class="text-input" min="1" /></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <input type="number" id="s-lotmin" class="text-input" placeholder="抽奖最小奖励" min="0" />
+      <input type="number" id="s-lotmax" class="text-input" placeholder="抽奖最大奖励" min="0" />
+    </div>
+  </div>
+  <div class="panel">
+    <h2>群白名单</h2>
+    <label>仅允许下列群使用（英文逗号分隔，留空 = 不限制）</label>
+    <textarea id="s-whitelist" placeholder="例如：12345678, 87654321"></textarea>
+  </div>
+  <div class="panel">
+    <h2>图片卡片（可选）</h2>
+    <div class="row" style="margin-bottom:8px">
+      <input type="checkbox" id="s-image" />
+      <label for="s-image" style="color:var(--text)">启用图片卡片输出（排行榜 / 积分）</label>
+    </div>
+    <label>字体：填写中文字体路径自定义，留空自动探测系统字体；找不到字体或未装 Pillow 时自动改用文本。</label>
+    <input type="text" id="s-font" class="text-input" placeholder="例如 C:/Windows/Fonts/msyh.ttc" value="" />
+  </div>
+  <div class="row">
+    <button class="btn" id="settings-save">保存设置</button>
+    <button class="btn ghost" id="settings-reload">重新载入</button>
+    <span class="msg" id="settings-msg"></span>
+  </div>
+</section>
+
+<script>
+const bridge = window.AstrBotPluginPage;
+let sortKey = "points";
+
+const $ = (id) => document.getElementById(id);
+function showMsg(id, text, ok) {
+  const el = $(id);
+  el.textContent = text;
+  el.className = "msg " + (ok ? "ok" : "err");
+  if (!ok) return;
+  setTimeout(() => { el.className = "msg"; }, 2500);
+}
+
+async function apiGet(path, params) {
+  try {
+    const data = await bridge.apiGet(path, params || {});
+    if (data && data.error) throw new Error(data.error);
+    return data;
+  } catch (e) {
+    showMsg("settings-msg", "请求失败：" + e.message, false);
+    throw e;
+  }
+}
+async function apiPost(path, body) {
+  try {
+    const data = await bridge.apiPost(path, body || {});
+    if (data && data.error) throw new Error(data.error);
+    return data;
+  } catch (e) {
+    alert("操作失败：" + e.message);
+    throw e;
+  }
+}
+
+// ---- 标签切换 ----
+document.querySelectorAll(".tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+    tab.classList.add("active");
+    const name = tab.dataset.tab;
+    ["overview", "ranking", "users", "products", "settings"].forEach((n) => {
+      $("tab-" + n).style.display = n === name ? "" : "none";
+    });
+    if (name === "ranking") loadRanking();
+    if (name === "users") { loadGroups(); loadUsers(); }
+    if (name === "products") loadProducts();
+    if (name === "settings") loadSettings();
+  });
+});
+
+// ---- 总览 ----
+async function loadOverview() {
+  try {
+    const d = await apiGet("overview");
+    $("ov-users").textContent = d.total_users;
+    $("ov-points").textContent = d.total_points;
+    $("ov-today").textContent = d.today_signins;
+    $("ov-products").textContent = d.product_count;
+    const map = {
+      signin_points: "每日签到基础积分",
+      streak_bonus_max: "连续签到加成上限",
+      lottery_cost: "抽奖消耗",
+      lottery_min: "抽奖最小奖励",
+      lottery_max: "抽奖最大奖励",
+      rank_top: "排行榜人数",
+      whitelist_groups: "群白名单",
+      font_path: "图片中文字体",
+      use_image: "图片输出",
+    };
+    let html = "";
+    for (const key of Object.keys(map)) {
+      let val = d.settings[key];
+      if (key === "whitelist_groups") val = (val && val.length) ? val.join(", ") : "不限制";
+      if (key === "use_image") val = val ? "开启" : "关闭";
+      html += `<tr><td>${map[key]}</td><td>${escapeHtml(String(val))}</td></tr>`;
+    }
+    $("ov-config").innerHTML = html;
+  } catch (e) {}
+}
+
+// ---- 排行榜 ----
+let rankCache = [];
+async function loadRanking() {
+  try {
+    const top = parseInt($("rank-top").value) || 20;
+    const groupId = $("rank-group").value.trim();
+    rankCache = await apiGet("ranking", { top, group_id: groupId });
+    renderRanking();
+  } catch (e) {}
+}
+function renderRanking() {
+  const rows = rankCache.rows || [];
+  const medals = ["🥇", "🥈", "🥉"];
+  $("rank-body").innerHTML = rows.length ? rows.map((u, i) => `<tr>
+    <td>${medals[i] || (i + 1)}</td>
+    <td>${escapeHtml(u.name || u.user_id)}</td>
+    <td>${escapeHtml(u.group_id || "-")}</td>
+    <td><b>${u.points}</b></td>
+    <td>${u.streak} 天</td>
+    <td>${u.signin_count} 次</td>
+  </tr>`).join("") : '<tr><td colspan="6" class="empty">暂无数据</td></tr>';
+}
+
+// ---- 用户管理 ----
+async function loadGroups() {
+  try {
+    const d = await apiGet("users", {});
+    const sel = $("user-group");
+    sel.innerHTML = '<option value="">全部群</option>' +
+      d.groups.map((g) => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join("");
+  } catch (e) {}
+}
+async function loadUsers() {
+  try {
+    const kw = $("user-keyword").value.trim();
+    const g = $("user-group").value;
+    const d = await apiGet("users", { keyword: kw, group_id: g });
+    const rows = d.users || [];
+    $("user-body").innerHTML = rows.length ? rows.map((u) => `<tr>
+      <td>${escapeHtml(u.name || u.user_id)}</td>
+      <td>${escapeHtml(u.user_id)}</td>
+      <td>${escapeHtml(u.group_id || "-")}</td>
+      <td><b>${u.points}</b></td>
+      <td>${u.streak} 天</td>
+      <td>
+        <button class="btn sm" data-act="add" data-uid="${escapeHtml(u.user_id)}" data-gid="${escapeHtml(u.group_id || "")}">+10</button>
+        <button class="btn sm danger" data-act="sub" data-uid="${escapeHtml(u.user_id)}" data-gid="${escapeHtml(u.group_id || "")}">-10</button>
+      </td>
+    </tr>`).join("") : '<tr><td colspan="6" class="empty">没有匹配的用户</td></tr>';
+  } catch (e) {}
+}
+function adjust(userId, delta, groupId) {
+  apiPost("users/adjust", { user_id: userId, delta, group_id: groupId })
+    .then(loadUsers)
+    .catch(() => {});
+}
+
+// ---- 商品管理 ----
+async function loadProducts() {
+  try {
+    const d = await apiGet("products");
+    const rows = d.products || [];
+    $("product-body").innerHTML = rows.length ? rows.map((p) => `<tr>
+      <td>${escapeHtml(p.icon || "🛒")}</td>
+      <td>${escapeHtml(p.name)} <span class="badge">${escapeHtml(p.id)}</span></td>
+      <td>${escapeHtml(p.desc || "-")}</td>
+      <td><b>${p.cost}</b></td>
+      <td>${p.stock === -1 ? '<span class="badge">不限量</span>'
+            : p.stock === 0 ? '<span class="badge warn">缺货</span>' : p.stock}</td>
+      <td>
+        <button class="btn sm ghost" data-act="edit" data-prodid="${escapeHtml(p.id)}">编辑</button>
+        <button class="btn sm danger" data-act="del" data-prodid="${escapeHtml(p.id)}">删除</button>
+      </td>
+    </tr>`).join("") : '<tr><td colspan="6" class="empty">还没有商品，点击右下角新增</td></tr>';
+  } catch (e) {}
+}
+
+// 商品表单（编辑预填）
+let productsCache = [];
+async function openProductForm(id) {
+  if (!productsCache.length) {
+    const d = await apiGet("products");
+    productsCache = d.products || [];
+  }
+  $("product-form").style.display = "";
+  $("product-form-title").textContent = id ? "编辑商品" : "新增商品";
+  const p = productsCache.find((x) => x.id === id);
+  $("p-id").value = p ? p.id : "";
+  $("p-key").value = p ? p.id : "";
+  $("p-icon").value = p ? p.icon || "" : "";
+  $("p-name").value = p ? p.name : "";
+  $("p-cost").value = p ? p.cost : "";
+  $("p-stock").value = p ? p.stock : -1;
+  $("p-desc").value = p ? p.desc || "" : "";
+}
+function resetProductForm() {
+  $("product-form").style.display = "none";
+  ["p-id", "p-key", "p-icon", "p-name", "p-cost", "p-stock", "p-desc"].forEach((i) => $(i).value = i === "p-stock" ? "-1" : "");
+}
+async function saveProduct() {
+  let stock = parseInt($("p-stock").value, 10);
+  if (Number.isNaN(stock)) stock = -1;
+  const body = {
+    id: $("p-key").value.trim(),
+    name: $("p-name").value.trim(),
+    icon: $("p-icon").value.trim(),
+    cost: parseInt($("p-cost").value) || 0,
+    stock,
+    desc: $("p-desc").value.trim(),
+  };
+  if (!body.id || !body.name) return showMsg("prod-msg", "编号与名称必填", false);
+  try {
+    await apiPost("products", body);
+    productsCache = [];
+    resetProductForm();
+    loadProducts();
+    showMsg("prod-msg", "已保存", true);
+  } catch (e) {}
+}
+async function deleteProduct(id) {
+  if (!confirm("确认删除商品 " + id + " ？用户积分兑换记录不受影响。")) return;
+  try {
+    await apiPost("products/" + id + "/delete", {});
+    productsCache = [];
+    loadProducts();
+  } catch (e) {}
+}
+
+// ---- 设置 ----
+let settingsData = null;
+async function loadSettings() {
+  try {
+    settingsData = await apiGet("settings");
+    const s = settingsData.settings || {};
+    $("s-signin").value = s.signin_points;
+    $("s-streak").value = s.streak_bonus_max;
+    $("s-lotkey").value = s.lottery_cost;
+    $("s-lotmin").value = s.lottery_min;
+    $("s-lotmax").value = s.lottery_max;
+    $("s-rank").value = s.rank_top;
+    $("s-whitelist").value = (s.whitelist_groups || []).join(", ");
+    $("s-font").value = s.font_path || "";
+    $("s-image").checked = s.use_image !== false;
+  } catch (e) {}
+}
+async function saveSettings() {
+  const body = {
+    signin_points: parseInt($("s-signin").value) || 0,
+    streak_bonus_max: parseInt($("s-streak").value) || 0,
+    lottery_cost: parseInt($("s-lotkey").value) || 0,
+    lottery_min: parseInt($("s-lotmin").value) || 0,
+    lottery_max: parseInt($("s-lotmax").value) || 0,
+    rank_top: parseInt($("s-rank").value) || 10,
+    whitelist_groups: $("s-whitelist").value.split(/[,，]/).map((x) => x.trim()).filter(Boolean),
+    font_path: $("s-font").value.trim(),
+    use_image: $("s-image").checked,
+  };
+  try {
+    await apiPost("settings", body);
+    showMsg("settings-msg", "设置已保存", true);
+    loadOverview();
+  } catch (e) {}
+}
+
+function escapeHtml(str) {
+  return String(str ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+// ---- 事件绑定 ----
+$("rank-refresh").addEventListener("click", loadRanking);
+$("rank-top").addEventListener("change", loadRanking);
+$("user-refresh").addEventListener("click", () => { loadUsers(); });
+$("user-keyword").addEventListener("keydown", (e) => { if (e.key === "Enter") loadUsers(); });
+$("prod-new").addEventListener("click", () => openProductForm(null));
+$("prod-save").addEventListener("click", saveProduct);
+$("prod-cancel").addEventListener("click", resetProductForm);
+
+// 用户表格事件委托（避免内联脚本 / 注入）
+$("user-body").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const delta = btn.dataset.act === "sub" ? -10 : 10;
+  adjust(btn.dataset.uid, delta, btn.dataset.gid);
+});
+// 商品表格事件委托
+$("product-body").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const id = btn.dataset.prodid;
+  if (btn.dataset.act === "edit") openProductForm(id);
+  else if (btn.dataset.act === "del") deleteProduct(id);
+});
+$("settings-save").addEventListener("click", saveSettings);
+$("settings-reload").addEventListener("click", loadSettings);
+
+// ---- 启动 ----
+(async function init() {
+  try {
+    await bridge.ready();
+    loadOverview();
+  } catch (e) {
+    document.body.insertAdjacentHTML("beforeend",
+      `<div style="margin-top:20px;color:var(--danger)">无法初始化 Bridge：${e.message}。请确认通过 AstrBot 面板打开本页面。</div>`);
+  }
+})();
+</script>
+</body>
+</html>

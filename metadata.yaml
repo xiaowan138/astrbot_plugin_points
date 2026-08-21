@@ -1,0 +1,22 @@
+name: astrbot_plugin_points
+display_name: 群积分签到系统
+short_desc: 每日签到、积分排行榜、积分抽奖与积分商店
+desc: 面向群聊的玩法插件：每日签到领取积分，连续签到可获得额外加成；
+      支持积分排行榜、积分抽奖（含彩蛋）、积分商店兑换与个人背包，积分可查看
+      累计获得/花费及最近历史流水。内置 Web 管理页面，可在 AstrBot 仪表盘内
+      直观配置签到奖励、抽奖参数、商城商品、群白名单与图片卡片字体。
+version: v1.0.0
+author: xiaowan138
+repo: https://github.com/xiaowan138/astrbot_plugin_points
+astrbot_version: ">=4.16"
+support_platforms:
+  - aiocqhttp
+  - qq_official
+social_link: https://github.com/xiaowan138
+tags:
+  - 签到
+  - 积分
+  - 排行榜
+  - 抽奖
+  - 商店
+  - 群聊

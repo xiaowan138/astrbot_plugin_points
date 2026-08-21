@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# 运行时数据（插件生成的数据文件不纳入版本库）
+points_data.json
+points_data.json.tmp
+img/
+
+# 环境与编辑器
+.venv/
+venv/
+.env
+.idea/
+.vscode/
+.DS_Store
