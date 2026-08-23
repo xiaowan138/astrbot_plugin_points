@@ -123,7 +123,9 @@ class CardRenderer:
         big = self.ImageFont.truetype(font_path, 54)
         title_font = self.ImageFont.truetype(font_path, 30)
 
-        width, height = 640, 380
+        recent = (user.get("history") or [])[-4:]
+        height = 380 + len(recent) * 24 + 16
+        width, height = 640, height
         img = self._new_canvas(width, height)
         draw = self.ImageDraw.Draw(img)
 
@@ -150,7 +152,6 @@ class CardRenderer:
             draw.text((x, y - 6), label, font=sm, fill=_MUTED)
             draw.text((x, y + 18), str(value), font=md, fill=_INK)
 
-        recent = (user.get("history") or [])[-4:]
         if recent:
             yy = y + 74
             draw.line([40, yy - 14, width - 40, yy - 14], fill=_LINE, width=1)

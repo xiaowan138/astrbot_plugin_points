@@ -214,6 +214,19 @@
     <label>字体：填写中文字体路径自定义，留空自动探测系统字体；找不到字体或未装 Pillow 时自动改用文本。</label>
     <input type="text" id="s-font" class="text-input" placeholder="例如 C:/Windows/Fonts/msyh.ttc" value="" />
   </div>
+  <div class="panel">
+    <h2>管理权限与额外奖励</h2>
+    <div class="grid2">
+      <div><label>超级管理员（用户 ID，英文逗号分隔；群主/管理员默认也可执行）</label>
+        <input type="text" id="s-admins" class="text-input" placeholder="空 = 仅群主/管理员" /></div>
+      <div><label>每日抽奖次数上限（0 = 不限）</label>
+        <input type="number" id="s-lotlimit" class="text-input" min="0" placeholder="0" /></div>
+    </div>
+    <div style="margin-top:10px">
+      <label>签到里程碑奖励（格式：天数:积分，英文逗号分隔，如 7:50,30:300,365:3650）</label>
+      <input type="text" id="s-milestones" class="text-input" style="width:100%" placeholder="7:50,30:300,365:3650" />
+    </div>
+  </div>
   <div class="row">
     <button class="btn" id="settings-save">保存设置</button>
     <button class="btn ghost" id="settings-reload">重新载入</button>
@@ -287,6 +300,9 @@ async function loadOverview() {
       lottery_max: "抽奖最大奖励",
       rank_top: "排行榜人数",
       whitelist_groups: "群白名单",
+      admin_user_ids: "超级管理员",
+      lottery_daily_limit: "每日抽奖上限",
+      milestone_rewards: "里程碑奖励",
       font_path: "图片中文字体",
       use_image: "图片输出",
     };
@@ -294,6 +310,9 @@ async function loadOverview() {
     for (const key of Object.keys(map)) {
       let val = d.settings[key];
       if (key === "whitelist_groups") val = (val && val.length) ? val.join(", ") : "不限制";
+      if (key === "admin_user_ids") val = (val && val.length) ? val.join(", ") : "（群主/管理员）";
+      if (key === "milestone_rewards") val = Object.entries(val || {})
+        .map(([d, v]) => d + ":" + v).join(", ") || "无";
       if (key === "use_image") val = val ? "开启" : "关闭";
       html += `<tr><td>${map[key]}</td><td>${escapeHtml(String(val))}</td></tr>`;
     }
@@ -442,6 +461,10 @@ async function loadSettings() {
     $("s-lotmax").value = s.lottery_max;
     $("s-rank").value = s.rank_top;
     $("s-whitelist").value = (s.whitelist_groups || []).join(", ");
+    $("s-admins").value = (s.admin_user_ids || []).join(", ");
+    $("s-lotlimit").value = s.lottery_daily_limit || 0;
+    $("s-milestones").value = Object.entries(s.milestone_rewards || {})
+      .map(([d, v]) => d + ":" + v).join(",");
     $("s-font").value = s.font_path || "";
     $("s-image").checked = s.use_image !== false;
   } catch (e) {}
@@ -455,6 +478,9 @@ async function saveSettings() {
     lottery_max: parseInt($("s-lotmax").value) || 0,
     rank_top: parseInt($("s-rank").value) || 10,
     whitelist_groups: $("s-whitelist").value.split(/[,，]/).map((x) => x.trim()).filter(Boolean),
+    admin_user_ids: $("s-admins").value.split(/[,，]/).map((x) => x.trim()).filter(Boolean),
+    lottery_daily_limit: parseInt($("s-lotlimit").value) || 0,
+    milestone_rewards: $("s-milestones").value.trim(),
     font_path: $("s-font").value.trim(),
     use_image: $("s-image").checked,
   };

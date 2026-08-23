@@ -38,6 +38,9 @@ DEFAULT_DATA = {
         "whitelist_groups": [],   # 空=不限制；非空则仅允许列出的群使用
         "font_path": "",          # 自定义中文字体路径（可选），留空自动探测系统字体
         "use_image": True,        # 是否输出图片卡片（排行榜 / 积分）
+        "admin_user_ids": [],     # 超级管理员（可执行 /加积分 等管理指令；群主/管理员默认也可）
+        "lottery_daily_limit": 0, # 每日抽奖次数上限，0=不限
+        "milestone_rewards": {"7": 50, "30": 300, "365": 3650},  # 连续签到里程碑奖励 {天数: 积分}
     },
     "users": {},      # key = "<group_id>|<user_id>"
     "products": [],   # {id, name, desc, cost, stock, icon}
@@ -65,6 +68,9 @@ class PointsStore:
                 # 兼容旧数据：缺省键补默认值
                 for key, value in DEFAULT_DATA.items():
                     loaded.setdefault(key, json.loads(json.dumps(value)))
+                # settings 内部若缺新增字段（如 admin_user_ids），也补默认值
+                for key, value in DEFAULT_DATA["settings"].items():
+                    loaded["settings"].setdefault(key, json.loads(json.dumps(value)))
                 return loaded
             except Exception as exc:
                 logger.error(f"[积分系统] 读取数据文件失败，使用默认数据: {exc}")
@@ -105,6 +111,10 @@ class PointsStore:
             user["name"] = name
         return user
 
+    def get_user(self, group_id, user_id):
+        """只读查询用户；不存在返回 None（不创建数据）。"""
+        return self.data["users"].get(self._key(group_id, user_id))
+
     def _record(self, user, delta, reason):
         """记录一笔积分变动流水（delta 为净变化，与 points 变化量一致）。"""
         user.setdefault("history", []).append({
@@ -128,7 +138,10 @@ class PointsStore:
             base = int(self.data["settings"].get("signin_points", 10))
             bonus = min(max(user["streak"] - 1, 0),
                         int(self.data["settings"].get("streak_bonus_max", 7)))
-            reward = base + bonus
+            base_reward = base + bonus
+            _config = self.data["settings"].get("milestone_rewards") or {}
+            milestone_bonus = int(_config.get(str(user["streak"]), 0) or 0)
+            reward = base_reward + milestone_bonus
             user["points"] += reward
             user["signin_count"] += 1
             user["total_earned"] = user.get("total_earned", 0) + reward
@@ -138,12 +151,23 @@ class PointsStore:
 
         return {"ok": True, "reward": reward, "bonus": bonus,
                 "streak": user["streak"], "points": user["points"],
-                "signin_count": user["signin_count"]}
+                "signin_count": user["signin_count"],
+                "milestone_day": (int(user["streak"]) if milestone_bonus else None),
+                "milestone_bonus": milestone_bonus}
 
     async def lottery(self, group_id, user_id, name):
         async with self.lock:
             user = self._ensure_user(group_id, user_id, name)
             cost = int(self.data["settings"].get("lottery_cost", 10))
+            _limit = int(self.data["settings"].get("lottery_daily_limit", 0) or 0)
+            if _limit > 0:
+                _today = date.today().isoformat()
+                if user.get("lottery_date") != _today:
+                    user["lottery_date"] = _today
+                    user["lottery_count"] = 0
+                if user.get("lottery_count", 0) >= _limit:
+                    return {"ok": False, "reason": "daily_limit", "limit": _limit,
+                            "points": user["points"]}
             if user["points"] < cost:
                 return {"ok": False, "reason": "insufficient",
                         "need": cost, "points": user["points"]}
@@ -156,11 +180,14 @@ class PointsStore:
             user["points"] = user["points"] - cost + reward
             user["total_earned"] = user.get("total_earned", 0) + reward
             user["total_spent"] = user.get("total_spent", 0) + cost
+            user["lottery_count"] = user.get("lottery_count", 0) + 1
             self._record(user, reward - cost, "抽奖")
             self._dump()
 
         return {"ok": True, "cost": cost, "reward": reward,
-                "jackpot": jackpot, "points": user["points"]}
+                "jackpot": jackpot, "points": user["points"],
+                "count_today": user.get("lottery_count", 1),
+                "limit": _limit}
 
     async def add_points(self, group_id, user_id, name, delta):
         """管理员调整积分。delta 可为负。"""
@@ -224,13 +251,25 @@ class PointsStore:
         async with self.lock:
             for key, value in patch.items():
                 if key == "whitelist_groups":
-                    self.data["settings"][key] = [str(x).strip() for x in value]
+                    self.data["settings"][key] = [str(x).strip() for x in value
+                                                  if str(x).strip()]
+                elif key == "admin_user_ids":
+                    if isinstance(value, (list, tuple)):
+                        self.data["settings"][key] = [str(x).strip() for x in value
+                                                      if str(x).strip()]
+                    else:
+                        self.data["settings"][key] = [str(x).strip() for x in
+                                                      str(value or "").replace("，", ",").split(",")
+                                                      if str(x).strip()]
                 elif key == "font_path":
                     self.data["settings"][key] = str(value or "").strip()
                 elif key == "use_image":
                     self.data["settings"][key] = bool(value)
+                elif key == "milestone_rewards":
+                    self.data["settings"][key] = self._parse_milestones(value)
                 elif key in ("signin_points", "streak_bonus_max", "lottery_cost",
-                             "lottery_min", "lottery_max", "rank_top"):
+                             "lottery_min", "lottery_max", "rank_top",
+                             "lottery_daily_limit"):
                     self.data["settings"][key] = max(0, int(value))
             self._dump()
         return dict(self.data["settings"])
@@ -272,6 +311,72 @@ class PointsStore:
             if deleted:
                 self._dump()
         return deleted
+
+    async def transfer(self, group_id, from_uid, from_name, to_uid, to_name, amount):
+        """用户间赠送积分。from_uid 转账给 to_uid，需在同一群。"""
+        async with self.lock:
+            if int(amount) < 1:
+                return {"ok": False, "reason": "bad_amount"}
+            if str(from_uid) and str(from_uid) == str(to_uid):
+                return {"ok": False, "reason": "self"}
+            frm = self._ensure_user(group_id, from_uid, from_name)
+            if frm["points"] < int(amount):
+                return {"ok": False, "reason": "insufficient", "points": frm["points"]}
+            to = self._ensure_user(group_id, to_uid, to_name)
+            frm["points"] -= int(amount)
+            frm["total_spent"] = frm.get("total_spent", 0) + int(amount)
+            to["points"] += int(amount)
+            to["total_earned"] = to.get("total_earned", 0) + int(amount)
+            self._record(frm, -int(amount), f"赠送 {to['name'] or to_uid}")
+            self._record(to, int(amount), f"收到 {frm['name'] or from_uid} 的赠送")
+            self._dump()
+        return {"ok": True, "amount": int(amount), "to": to["name"],
+                "from_points": frm["points"]}
+
+    async def backfill_signin(self, group_id, user_id, name):
+        """管理员补签到：直接在今日发一份基础签到积分（不计连续加成）。"""
+        async with self.lock:
+            user = self._ensure_user(group_id, user_id, name)
+            reward = int(self.data["settings"].get("signin_points", 10))
+            if user["last_signin"] != date.today().isoformat():
+                user["points"] += reward
+                user["signin_count"] += 1
+                user["total_earned"] = user.get("total_earned", 0) + reward
+                user["last_signin"] = date.today().isoformat()
+            self._record(user, reward, "管理员补签到")
+            self._dump()
+        return {"ok": True, "reward": reward, "points": user["points"]}
+
+    async def reset_user(self, group_id, user_id):
+        """清空一个用户的全部群积分数据。"""
+        async with self.lock:
+            key = self._key(group_id, user_id)
+            existed = key in self.data["users"]
+            self.data["users"].pop(key, None)
+            if existed:
+                self._dump()
+        return existed
+
+    @staticmethod
+    def _parse_milestones(value):
+        """把 {7:50,...} 或字符串 "7:50,30:300" 解析为 {str: int}。"""
+        out = {}
+        pairs = []
+        if isinstance(value, dict):
+            pairs = list(value.items())
+        elif isinstance(value, str):
+            for part in str(value).replace("，", ",").split(","):
+                part = part.strip()
+                if ":" in part:
+                    pairs.append(tuple(part.split(":", 1)))
+                elif "=" in part:
+                    pairs.append(tuple(part.split("=", 1)))
+        for k, v in pairs:
+            try:
+                out[str(int(k))] = max(0, int(v))
+            except (TypeError, ValueError):
+                continue
+        return out
 
 
 class PointsPlugin(Star):
@@ -324,6 +429,75 @@ class PointsPlugin(Star):
     def _plain(event: AstrMessageEvent, text: str):
         return event.plain_result(text)
 
+    @staticmethod
+    def _extract_at_ids(event: AstrMessageEvent):
+        """提取消息中所有被 @ 的用户 ID，跨平台兼容 aiocqhttp / qq_official。"""
+        ats = []
+        try:
+            for seg in event.message:
+                if getattr(seg, "type", "") != "at":
+                    continue
+                data = getattr(seg, "data", None) or {}
+                for key in ("qq", "user_id", "open_id", "openid", "id"):
+                    if data.get(key) is not None:
+                        ats.append(str(data[key]))
+                        break
+        except Exception:
+            pass
+        return ats
+
+    @staticmethod
+    def _resolve_target(event: AstrMessageEvent, first_arg, second_arg):
+        """解析管理/赠送目标与数量：优先取 @，否则取数字参数。"""
+        ats = PointsPlugin._extract_at_ids(event)
+        if ats:
+            return ats[0], PointsPlugin._to_int(first_arg)
+        if str(first_arg or "").strip().isdigit():
+            return str(first_arg).strip(), PointsPlugin._to_int(second_arg)
+        return None, PointsPlugin._to_int(first_arg)
+
+    @staticmethod
+    def _to_int(val):
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return 0
+
+    def _is_admin(self, event: AstrMessageEvent, user_id: str) -> bool:
+        ids = self.store.data["settings"].get("admin_user_ids") or []
+        if user_id and user_id in [str(x) for x in ids]:
+            return True
+        sender = getattr(event.message_obj, "sender", None)
+        if sender is None:
+            return False
+        # 角色字段名在不同平台各不相同：role / permission / auth...
+        role = str(self._get_field(sender, "role", "permission", "authority") or "").strip()
+        if role.lower() in ("owner", "admin", "administrator",
+                            "群主", "管理员", "管理員", "manage"):
+            return True
+        # 部分协议用布尔字段标识群主/管理员
+        for flag in ("is_owner", "is_admin", "is_operator",
+                     "is_group_owner", "is_group_admin", "is_effective_admin"):
+            if self._get_field(sender, flag) is True:
+                return True
+        return False
+
+    @staticmethod
+    def _get_field(obj, *names, default=None):
+        """从 sender 提取字段，兼容「对象属性」与「dict」两种实现。"""
+        if obj is None:
+            return default
+        if isinstance(obj, dict):
+            for n in names:
+                if obj.get(n) is not None:
+                    return obj[n]
+        else:
+            for n in names:
+                v = getattr(obj, n, None)
+                if v is not None:
+                    return v
+        return default
+
     # ------------------------------------------------------------------ #
     # 群聊指令
     # ------------------------------------------------------------------ #
@@ -337,11 +511,13 @@ class PointsPlugin(Star):
         result = await self.store.signin(group_id, user_id, name)
         if result["ok"]:
             bonus_txt = f"（含连续签到加成 +{result['bonus']}）" if result["bonus"] else ""
+            m_txt = (f"\n🎉 连续签到 {result['milestone_day']} 天里程碑，额外 +{result['milestone_bonus']} 积分！"
+                     if result.get("milestone_bonus") else "")
             yield self._plain(
                 event,
                 f"签到成功！本次 +{result['reward']} 积分{bonus_txt}\n"
                 f"已连续签到 {result['streak']} 天，当前积分 {result['points']}\n"
-                f"累计签到 {result['signin_count']} 次。")
+                f"累计签到 {result['signin_count']} 次。{m_txt}")
         else:
             yield self._plain(
                 event,
@@ -386,12 +562,16 @@ class PointsPlugin(Star):
         return user
 
     @filter.command("排行榜")
-    async def cmd_ranking(self, event: AstrMessageEvent, top: int = 0):
+    async def cmd_ranking(self, event: AstrMessageEvent, top: str = ""):
         group_id, _ = self._ids(event)
         if not self._allowed(group_id):
             yield self._plain(event, "本群未开启积分系统。")
             return
-        limit = top if top and top > 0 else int(
+        try:
+            top_n = int(str(top).strip()) if str(top).strip() else 0
+        except (TypeError, ValueError):
+            top_n = 0
+        limit = top_n if top_n > 0 else int(
             self.store.data["settings"].get("rank_top", 10))
         limit = max(1, min(limit, 50))
         rows = self.store.ranking(group_id=group_id or None, top=limit)
@@ -422,10 +602,15 @@ class PointsPlugin(Star):
         result = await self.store.lottery(group_id, user_id, name)
         if result["ok"]:
             jackpot_txt = "\n触发彩蛋，本次奖励翻三倍。" if result["jackpot"] else ""
+            extra = f"（今日已抽 {result['count_today']} 次）" if result["limit"] and result["limit"] > 0 else ""
             yield self._plain(
                 event,
                 f"花费 {result['cost']} 积分，抽中 +{result['reward']} 积分。{jackpot_txt}"
-                f"\n当前积分 {result['points']}")
+                f"\n当前积分 {result['points']} {extra}")
+        elif result["reason"] == "daily_limit":
+            yield self._plain(
+                event,
+                f"今日抽奖次数已用完（上限 {result['limit']} 次），明天再来吧。")
         else:
             yield self._plain(
                 event,
@@ -434,6 +619,10 @@ class PointsPlugin(Star):
 
     @filter.command("商店")
     async def cmd_shop(self, event: AstrMessageEvent):
+        group_id, _ = self._ids(event)
+        if not self._allowed(group_id):
+            yield self._plain(event, "本群未开启积分系统。")
+            return
         products = self.store.data["products"]
         if not products:
             yield self._plain(event, "商店暂时没有上架任何商品。")
@@ -495,6 +684,91 @@ class PointsPlugin(Star):
             lines.append(f"  {item['name']}  x{item['count']}   累计花费 {item['cost']} 积分")
         yield self._plain(event, "\n".join(lines))
 
+    @filter.command("赠送")
+    async def cmd_gift(self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""):
+        group_id, user_id = self._ids(event)
+        if not self._allowed(group_id):
+            yield self._plain(event, "本群未开启积分系统。")
+            return
+        target, amount = self._resolve_target(event, arg1, arg2)
+        if not target or amount < 1:
+            yield self._plain(event, "用法：/赠送 @群友 数量")
+            return
+        if str(target) == str(user_id):
+            yield self._plain(event, "不能把积分送给自己哦。")
+            return
+        name = event.get_sender_name()
+        result = await self.store.transfer(group_id, user_id, name, target, "", amount)
+        if result["ok"]:
+            yield self._plain(
+                event,
+                f"✔ 已赠送 {result['amount']} 积分给 {result['to'] or target}，"
+                f"你当前剩余 {result['from_points']} 积分。")
+        elif result["reason"] == "insufficient":
+            yield self._plain(
+                event, f"积分不足，你当前只有 {result['points']} 积分。先签到攒积分吧。")
+        else:
+            yield self._plain(event, "赠送失败，请检查数量和目标。")
+
+    @filter.command("加积分")
+    async def cmd_admin_add(self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""):
+        group_id, user_id = self._ids(event)
+        if not self._is_admin(event, user_id):
+            yield self._plain(event, "仅群主/管理员（或已配置超级管理员）可执行此操作。")
+            return
+        target, amount = self._resolve_target(event, arg1, arg2)
+        if not target or amount < 1:
+            yield self._plain(event, "用法：/加积分 @用户 数量 或 /加积分 用户ID 数量")
+            return
+        result = await self.store.add_points(group_id, target, "", amount)
+        yield self._plain(event, f"✔ 已为 {target} 增加 {amount} 积分，其当前积分 {result['points']}。")
+
+    @filter.command("扣积分")
+    async def cmd_admin_sub(self, event: AstrMessageEvent, arg1: str = "", arg2: str = ""):
+        group_id, user_id = self._ids(event)
+        if not self._is_admin(event, user_id):
+            yield self._plain(event, "仅群主/管理员（或已配置超级管理员）可执行此操作。")
+            return
+        target, amount = self._resolve_target(event, arg1, arg2)
+        if not target or amount < 1:
+            yield self._plain(event, "用法：/扣积分 @用户 数量 或 /扣积分 用户ID 数量")
+            return
+        result = await self.store.add_points(group_id, target, "", -amount)
+        yield self._plain(event, f"✔ 已为 {target} 扣除 {amount} 积分，其当前积分 {result['points']}。")
+
+    @filter.command("补签到")
+    async def cmd_admin_backfill(self, event: AstrMessageEvent, arg1: str = ""):
+        group_id, user_id = self._ids(event)
+        if not self._is_admin(event, user_id):
+            yield self._plain(event, "仅群主/管理员（或已配置超级管理员）可执行此操作。")
+            return
+        ats = self._extract_at_ids(event)
+        target = ats[0] if ats else str(arg1 or "").strip()
+        if not target:
+            yield self._plain(event, "用法：/补签到 @用户 或 /补签到 用户ID")
+            return
+        result = await self.store.backfill_signin(group_id, target, "")
+        yield self._plain(
+            event,
+            f"✔ 已为 {target} 补签到，+{result['reward']} 积分，当前 {result['points']} 积分。")
+
+    @filter.command("重置用户")
+    async def cmd_admin_reset(self, event: AstrMessageEvent, arg1: str = ""):
+        group_id, user_id = self._ids(event)
+        if not self._is_admin(event, user_id):
+            yield self._plain(event, "仅群主/管理员（或已配置超级管理员）可执行此操作。")
+            return
+        ats = self._extract_at_ids(event)
+        target = ats[0] if ats else str(arg1 or "").strip()
+        if not target:
+            yield self._plain(event, "用法：/重置用户 用户ID")
+            return
+        existed = await self.store.reset_user(group_id, target)
+        if existed:
+            yield self._plain(event, f"已清空用户 {target} 在本群的积分数据。")
+        else:
+            yield self._plain(event, f"没有找到用户 {target} 在本群的积分数据。")
+
     @filter.command("积分帮助")
     async def cmd_help(self, event: AstrMessageEvent):
         yield self._plain(
@@ -507,7 +781,13 @@ class PointsPlugin(Star):
             "/抽奖         花费积分抽奖\n"
             "/商店         查看商店商品\n"
             "/兑换 <编号> [数量]  使用积分兑换\n"
-            "管理员可在插件管理页面配置奖励与商品。")
+            "/赠送 @群友 数量    把积分转给群友\n"
+            "管理员指令：\n"
+            "/加积分 @用户 数量\n"
+            "/扣积分 @用户 数量\n"
+            "/补签到 @用户\n"
+            "/重置用户 用户ID\n"
+            "管理员可在插件页面配置奖励、抽奖与管理员。")
 
     # ------------------------------------------------------------------ #
     # Web 管理面板 API
