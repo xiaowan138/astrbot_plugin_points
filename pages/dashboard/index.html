@@ -36,13 +36,14 @@
   .tab:hover { color: var(--text); border-color: var(--accent); }
   .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
   .card .label { color: var(--muted); font-size: 12px; }
   .card .value { font-size: 26px; font-weight: 700; margin-top: 6px; }
   .card .value.accent { color: var(--accent); }
   .card .value.green { color: var(--accent-2); }
   .card .value.warn { color: var(--warn); }
+  .card .value.danger { color: var(--danger); }
 
   .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
   .panel h2 { font-size: 14.5px; margin-bottom: 12px; color: var(--text); }
@@ -62,6 +63,8 @@
   .text-input { flex: 1; min-width: 140px; }
   textarea { width: 100%; resize: vertical; min-height: 60px; }
   label { color: var(--muted); font-size: 12.5px; }
+  .check-row { display: flex; gap: 8px; align-items: center; }
+  .check-row label { color: var(--text); }
 
   .btn {
     padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer;
@@ -72,6 +75,7 @@
   .btn.ghost:hover { color: var(--text); border-color: var(--accent); }
   .btn.danger { background: transparent; border: 1px solid var(--danger); color: var(--danger); }
   .btn.danger:hover { background: var(--danger); color: #fff; }
+  .btn.green { background: var(--accent-2); }
   .btn.sm { padding: 4px 10px; font-size: 12px; }
   .btn:disabled { opacity: .5; cursor: not-allowed; }
 
@@ -81,11 +85,12 @@
 
   .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--panel-2); color: var(--muted); }
   .badge.warn { background: rgba(245,185,74,.15); color: var(--warn); }
+  .badge.green { background: rgba(55,201,158,.15); color: var(--accent-2); }
   .empty { color: var(--muted); text-align: center; padding: 24px 0; }
 
-  .product-form { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-top: 12px; }
+  .item-form { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-top: 12px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .tags-options { display: inline-flex; gap: 8px; align-items: center; }
+  @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -97,6 +102,9 @@
   <div class="tab" data-tab="ranking">排行榜</div>
   <div class="tab" data-tab="users">用户管理</div>
   <div class="tab" data-tab="products">商品管理</div>
+  <div class="tab" data-tab="prizes">抽奖奖池</div>
+  <div class="tab" data-tab="redemptions">兑换核销</div>
+  <div class="tab" data-tab="audit">审计日志</div>
   <div class="tab" data-tab="settings">设置</div>
 </div>
 
@@ -107,6 +115,18 @@
     <div class="card"><div class="label">累计积分</div><div class="value" id="ov-points">-</div></div>
     <div class="card"><div class="label">今日签到</div><div class="value green" id="ov-today">-</div></div>
     <div class="card"><div class="label">商店商品</div><div class="value warn" id="ov-products">-</div></div>
+    <div class="card"><div class="label">待核销</div><div class="value danger" id="ov-pending">-</div></div>
+    <div class="card"><div class="label">赛季归档</div><div class="value" id="ov-seasons">-</div></div>
+  </div>
+  <div class="panel">
+    <div class="row" style="margin-bottom:8px">
+      <h2 style="flex:1;margin:0">最近管理员操作</h2>
+      <button class="btn ghost sm" id="ov-export">⬇ 导出数据备份</button>
+    </div>
+    <table>
+      <thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>详情</th></tr></thead>
+      <tbody id="ov-audit"></tbody>
+    </table>
   </div>
   <div class="panel">
     <h2>当前配置摘要</h2>
@@ -160,10 +180,10 @@
       <button class="btn" id="prod-new">＋ 新增商品</button>
     </div>
     <table>
-      <thead><tr><th>图标</th><th>名称</th><th>描述</th><th>价格</th><th>库存</th><th>操作</th></tr></thead>
+      <thead><tr><th>图标</th><th>名称</th><th>描述</th><th>价格</th><th>库存</th><th>需核销</th><th>操作</th></tr></thead>
       <tbody id="product-body"></tbody>
     </table>
-    <div class="product-form" id="product-form" style="display:none">
+    <div class="item-form" id="product-form" style="display:none">
       <h2 style="margin-bottom:10px" id="product-form-title">新增商品</h2>
       <input type="hidden" id="p-id" />
       <div class="grid2">
@@ -174,14 +194,80 @@
         <div><label>商品名称</label><input type="text" id="p-name" class="text-input" placeholder="名称" /></div>
         <div><label>价格（积分）</label><input type="number" id="p-cost" min="0" placeholder="100" /></div>
       </div>
-      <div><label>库存（-1 为不限量）</label><input type="number" id="p-stock" min="-1" value="-1" style="width:140px" /></div>
-      <div><label>描述</label><textarea id="p-desc" placeholder="兑换后能获得什么，展示给群友看"></textarea></div>
+      <div class="grid2" style="margin-top:10px">
+        <div><label>库存（-1 为不限量）</label><input type="number" id="p-stock" min="-1" value="-1" style="width:140px" /></div>
+        <div class="check-row" style="align-self:end;padding-bottom:8px">
+          <input type="checkbox" id="p-verify" />
+          <label for="p-verify">需要管理员核销（生成兑换码）</label>
+        </div>
+      </div>
+      <div style="margin-top:10px"><label>描述</label><textarea id="p-desc" placeholder="兑换后能获得什么，展示给群友看"></textarea></div>
       <div class="row" style="margin:12px 0 0">
         <button class="btn" id="prod-save">保存</button>
         <button class="btn ghost" id="prod-cancel">取消</button>
         <span class="msg" id="prod-msg"></span>
       </div>
     </div>
+  </div>
+</section>
+
+<!-- 抽奖奖池 -->
+<section id="tab-prizes" style="display:none">
+  <div class="panel">
+    <div class="row">
+      <h2 style="flex:1;margin:0">自定义奖池（按权重随机）</h2>
+      <span class="badge">在「设置」中开启「使用自定义奖池」后生效</span>
+    </div>
+    <table>
+      <thead><tr><th>编号</th><th>奖品名称</th><th>积分</th><th>权重</th><th>操作</th></tr></thead>
+      <tbody id="prize-body"></tbody>
+    </table>
+    <div class="item-form" id="prize-form" style="display:none">
+      <div class="grid2">
+        <div><label>奖品编号 id</label><input type="text" id="z-key" class="text-input" placeholder="例如 big" /></div>
+        <div><label>奖品名称</label><input type="text" id="z-name" class="text-input" placeholder="例如 大奖（积分可为 0 表示谢谢参与）" /></div>
+      </div>
+      <div class="grid2" style="margin-top:10px">
+        <div><label>奖励积分（0 = 谢谢参与）</label><input type="number" id="z-points" min="0" value="0" /></div>
+        <div><label>权重（越大越容易抽中）</label><input type="number" id="z-weight" min="1" value="10" /></div>
+      </div>
+      <div class="row" style="margin:12px 0 0">
+        <button class="btn" id="prize-save">保存</button>
+        <button class="btn ghost" id="prize-cancel">取消</button>
+        <span class="msg" id="prize-msg"></span>
+      </div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn ghost" id="prize-new">＋ 新增奖池项</button>
+    </div>
+  </div>
+</section>
+
+<!-- 兑换核销 -->
+<section id="tab-redemptions" style="display:none">
+  <div class="panel">
+    <div class="row">
+      <h2 style="flex:1;margin:0">兑换记录（新→旧）</h2>
+      <button class="btn ghost" id="redem-refresh">刷新</button>
+    </div>
+    <table>
+      <thead><tr><th>兑换码</th><th>用户</th><th>商品</th><th>数量</th><th>花费</th><th>时间</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody id="redem-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- 审计日志 -->
+<section id="tab-audit" style="display:none">
+  <div class="panel">
+    <div class="row">
+      <h2 style="flex:1;margin:0">管理员操作日志（最近 100 条）</h2>
+      <button class="btn ghost" id="audit-refresh">刷新</button>
+    </div>
+    <table>
+      <thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>详情</th></tr></thead>
+      <tbody id="audit-body"></tbody>
+    </table>
   </div>
 </section>
 
@@ -198,18 +284,77 @@
     <div class="row" style="margin-top:10px">
       <input type="number" id="s-lotmin" class="text-input" placeholder="抽奖最小奖励" min="0" />
       <input type="number" id="s-lotmax" class="text-input" placeholder="抽奖最大奖励" min="0" />
+      <div class="check-row">
+        <input type="checkbox" id="s-usepool" />
+        <label for="s-usepool">使用自定义奖池</label>
+      </div>
     </div>
   </div>
   <div class="panel">
-    <h2>群白名单</h2>
+    <h2>每日任务与发言奖励</h2>
+    <div class="grid2">
+      <div><label>任务：签到奖励</label><input type="number" id="s-tasksign" class="text-input" min="0" /></div>
+      <div><label>任务：抽奖 1 次奖励</label><input type="number" id="s-tasklot" class="text-input" min="0" /></div>
+      <div><label>任务：发言达标条数</label><input type="number" id="s-taskchatn" class="text-input" min="1" /></div>
+      <div><label>任务：发言奖励</label><input type="number" id="s-taskchatr" class="text-input" min="0" /></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div class="check-row">
+        <input type="checkbox" id="s-chatreward" />
+        <label for="s-chatreward">开启发言赚积分</label>
+      </div>
+      <label>每条</label><input type="number" id="s-chatper" min="0" />
+      <label>每日封顶</label><input type="number" id="s-chatcap" min="0" />
+    </div>
+  </div>
+  <div class="panel">
+    <h2>赛季榜（周 / 月）</h2>
+    <div class="grid2">
+      <div><label>冠亚季军奖励（逗号分隔，如 300,200,100）</label>
+        <input type="text" id="s-season" class="text-input" placeholder="300,200,100" /></div>
+      <div><label>快捷结算（群内也可用 /赛季结算）</label>
+        <div class="row" style="margin:0">
+          <button class="btn ghost" id="settle-week">结算周榜</button>
+          <button class="btn ghost" id="settle-month">结算月榜</button>
+        </div>
+      </div>
+    </div>
+    <label style="display:block;margin-top:8px">结算会归档当前榜单、给前三名发奖，并把本期计数清零。</label>
+  </div>
+  <div class="panel">
+    <h2>签到提醒（可选）</h2>
+    <div class="row">
+      <div class="check-row">
+        <input type="checkbox" id="s-remind" />
+        <label for="s-remind">每日定时提醒未签到</label>
+      </div>
+      <label>时间</label><input type="text" id="s-remindtime" placeholder="21:00" style="width:90px" />
+      <label>平台</label><input type="text" id="s-remindplat" placeholder="aiocqhttp" style="width:130px" />
+    </div>
+    <label>仅在已配置群白名单的群发送；主动发消息依赖平台适配器支持。</label>
+  </div>
+  <div class="panel">
+    <h2>群白名单与使用范围</h2>
     <label>仅允许下列群使用（英文逗号分隔，留空 = 不限制）</label>
     <textarea id="s-whitelist" placeholder="例如：12345678, 87654321"></textarea>
+    <div class="row" style="margin-top:10px">
+      <div class="check-row">
+        <input type="checkbox" id="s-private" />
+        <label for="s-private">允许私聊使用积分系统</label>
+      </div>
+      <label>时区（UTC 偏移小时，默认 8）</label>
+      <input type="number" id="s-tz" min="-12" max="14" style="width:90px" />
+      <div class="check-row">
+        <input type="checkbox" id="s-ach" />
+        <label for="s-ach">启用成就系统</label>
+      </div>
+    </div>
   </div>
   <div class="panel">
     <h2>图片卡片（可选）</h2>
     <div class="row" style="margin-bottom:8px">
       <input type="checkbox" id="s-image" />
-      <label for="s-image" style="color:var(--text)">启用图片卡片输出（排行榜 / 积分）</label>
+      <label for="s-image" style="color:var(--text)">启用图片卡片输出（排行榜 / 积分 / 商店）</label>
     </div>
     <label>字体：填写中文字体路径自定义，留空自动探测系统字体；找不到字体或未装 Pillow 时自动改用文本。</label>
     <input type="text" id="s-font" class="text-input" placeholder="例如 C:/Windows/Fonts/msyh.ttc" value="" />
@@ -236,7 +381,6 @@
 
 <script>
 const bridge = window.AstrBotPluginPage;
-let sortKey = "points";
 
 const $ = (id) => document.getElementById(id);
 function showMsg(id, text, ok) {
@@ -269,17 +413,20 @@ async function apiPost(path, body) {
 }
 
 // ---- 标签切换 ----
+const TABS = ["overview", "ranking", "users", "products", "prizes",
+              "redemptions", "audit", "settings"];
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
     tab.classList.add("active");
     const name = tab.dataset.tab;
-    ["overview", "ranking", "users", "products", "settings"].forEach((n) => {
-      $("tab-" + n).style.display = n === name ? "" : "none";
-    });
+    TABS.forEach((n) => { $("tab-" + n).style.display = n === name ? "" : "none"; });
     if (name === "ranking") loadRanking();
     if (name === "users") { loadGroups(); loadUsers(); }
     if (name === "products") loadProducts();
+    if (name === "prizes") loadPrizes();
+    if (name === "redemptions") loadRedemptions();
+    if (name === "audit") loadAudit();
     if (name === "settings") loadSettings();
   });
 });
@@ -292,17 +439,35 @@ async function loadOverview() {
     $("ov-points").textContent = d.total_points;
     $("ov-today").textContent = d.today_signins;
     $("ov-products").textContent = d.product_count;
+    $("ov-pending").textContent = d.pending_redemptions;
+    $("ov-seasons").textContent = d.seasons_count;
+    $("ov-audit").innerHTML = (d.audit_tail || []).length
+      ? d.audit_tail.map((r) => `<tr>
+          <td>${escapeHtml(r.time || "")}</td>
+          <td>${escapeHtml(r.admin_name || r.admin_id || "-")}</td>
+          <td>${escapeHtml(r.action || "")}</td>
+          <td>${escapeHtml(r.detail || "")}</td>
+        </tr>`).join("")
+      : '<tr><td colspan="4" class="empty">暂无记录</td></tr>';
     const map = {
       signin_points: "每日签到基础积分",
       streak_bonus_max: "连续签到加成上限",
       lottery_cost: "抽奖消耗",
       lottery_min: "抽奖最小奖励",
       lottery_max: "抽奖最大奖励",
+      lottery_use_pool: "自定义奖池",
       rank_top: "排行榜人数",
       whitelist_groups: "群白名单",
+      allow_private: "私聊可用",
+      timezone_offset: "时区(UTC+)",
       admin_user_ids: "超级管理员",
       lottery_daily_limit: "每日抽奖上限",
       milestone_rewards: "里程碑奖励",
+      chat_reward_enabled: "发言赚积分",
+      task_signin_reward: "任务·签到奖励",
+      season_rewards: "赛季奖励",
+      reminder_enabled: "签到提醒",
+      achievements_enabled: "成就系统",
       font_path: "图片中文字体",
       use_image: "图片输出",
     };
@@ -313,7 +478,11 @@ async function loadOverview() {
       if (key === "admin_user_ids") val = (val && val.length) ? val.join(", ") : "（群主/管理员）";
       if (key === "milestone_rewards") val = Object.entries(val || {})
         .map(([d, v]) => d + ":" + v).join(", ") || "无";
-      if (key === "use_image") val = val ? "开启" : "关闭";
+      if (key === "season_rewards") val = (val || []).join(", ") || "无";
+      if (["use_image", "allow_private", "chat_reward_enabled", "reminder_enabled",
+           "achievements_enabled", "lottery_use_pool"].includes(key)) {
+        val = val ? "开启" : "关闭";
+      }
       html += `<tr><td>${map[key]}</td><td>${escapeHtml(String(val))}</td></tr>`;
     }
     $("ov-config").innerHTML = html;
@@ -381,7 +550,8 @@ function adjust(userId, delta, groupId) {
 async function loadProducts() {
   try {
     const d = await apiGet("products");
-    const rows = d.products || [];
+    productsCache = d.products || [];
+    const rows = productsCache;
     $("product-body").innerHTML = rows.length ? rows.map((p) => `<tr>
       <td>${escapeHtml(p.icon || "🛒")}</td>
       <td>${escapeHtml(p.name)} <span class="badge">${escapeHtml(p.id)}</span></td>
@@ -389,21 +559,17 @@ async function loadProducts() {
       <td><b>${p.cost}</b></td>
       <td>${p.stock === -1 ? '<span class="badge">不限量</span>'
             : p.stock === 0 ? '<span class="badge warn">缺货</span>' : p.stock}</td>
+      <td>${p.need_verify ? '<span class="badge warn">需核销</span>' : '<span class="badge">直发</span>'}</td>
       <td>
         <button class="btn sm ghost" data-act="edit" data-prodid="${escapeHtml(p.id)}">编辑</button>
         <button class="btn sm danger" data-act="del" data-prodid="${escapeHtml(p.id)}">删除</button>
       </td>
-    </tr>`).join("") : '<tr><td colspan="6" class="empty">还没有商品，点击右下角新增</td></tr>';
+    </tr>`).join("") : '<tr><td colspan="7" class="empty">还没有商品，点击右下角新增</td></tr>';
   } catch (e) {}
 }
 
-// 商品表单（编辑预填）
 let productsCache = [];
-async function openProductForm(id) {
-  if (!productsCache.length) {
-    const d = await apiGet("products");
-    productsCache = d.products || [];
-  }
+function openProductForm(id) {
   $("product-form").style.display = "";
   $("product-form-title").textContent = id ? "编辑商品" : "新增商品";
   const p = productsCache.find((x) => x.id === id);
@@ -414,12 +580,15 @@ async function openProductForm(id) {
   $("p-cost").value = p ? p.cost : "";
   $("p-stock").value = p ? p.stock : -1;
   $("p-desc").value = p ? p.desc || "" : "";
+  $("p-verify").checked = p ? !!p.need_verify : false;
 }
 function resetProductForm() {
   $("product-form").style.display = "none";
-  ["p-id", "p-key", "p-icon", "p-name", "p-cost", "p-stock", "p-desc"].forEach((i) => $(i).value = i === "p-stock" ? "-1" : "");
+  ["p-id", "p-key", "p-icon", "p-name", "p-cost", "p-stock", "p-desc"].forEach(
+    (i) => $(i).value = i === "p-stock" ? "-1" : "");
+  $("p-verify").checked = false;
 }
-async function saveProduct() {
+function saveProduct() {
   let stock = parseInt($("p-stock").value, 10);
   if (Number.isNaN(stock)) stock = -1;
   const body = {
@@ -429,22 +598,121 @@ async function saveProduct() {
     cost: parseInt($("p-cost").value) || 0,
     stock,
     desc: $("p-desc").value.trim(),
+    need_verify: $("p-verify").checked,
   };
   if (!body.id || !body.name) return showMsg("prod-msg", "编号与名称必填", false);
+  apiPost("products", body)
+    .then(() => { resetProductForm(); loadProducts(); showMsg("prod-msg", "已保存", true); })
+    .catch(() => {});
+}
+function deleteProduct(id) {
+  if (!confirm("确认删除商品 " + id + " ？用户积分兑换记录不受影响。")) return;
+  apiPost("products/" + id + "/delete", {})
+    .then(loadProducts)
+    .catch(() => {});
+}
+
+// ---- 抽奖奖池 ----
+let prizesCache = [];
+async function loadPrizes() {
   try {
-    await apiPost("products", body);
-    productsCache = [];
-    resetProductForm();
-    loadProducts();
-    showMsg("prod-msg", "已保存", true);
+    const d = await apiGet("prizes");
+    prizesCache = d.prizes || [];
+    const total = prizesCache.reduce((a, p) => a + (p.weight || 0), 0);
+    $("prize-body").innerHTML = prizesCache.length ? prizesCache.map((p) => {
+      const pct = total ? ((p.weight / total) * 100).toFixed(1) : 0;
+      return `<tr>
+        <td><span class="badge">${escapeHtml(p.id)}</span></td>
+        <td>${escapeHtml(p.name)}</td>
+        <td>${p.points > 0 ? "+" + p.points : "谢谢参与"}</td>
+        <td>${p.weight} <span class="badge">${pct}%</span></td>
+        <td>
+          <button class="btn sm ghost" data-act="edit" data-prizeid="${escapeHtml(p.id)}">编辑</button>
+          <button class="btn sm danger" data-act="del" data-prizeid="${escapeHtml(p.id)}">删除</button>
+        </td>
+      </tr>`;
+    }).join("") : '<tr><td colspan="5" class="empty">奖池为空，将使用「抽奖最小/最大奖励」随机</td></tr>';
   } catch (e) {}
 }
-async function deleteProduct(id) {
-  if (!confirm("确认删除商品 " + id + " ？用户积分兑换记录不受影响。")) return;
+function openPrizeForm(id) {
+  $("prize-form").style.display = "";
+  const p = prizesCache.find((x) => x.id === id);
+  $("z-key").value = p ? p.id : "";
+  $("z-name").value = p ? p.name : "";
+  $("z-points").value = p ? p.points : 0;
+  $("z-weight").value = p ? p.weight : 10;
+}
+function resetPrizeForm() { $("prize-form").style.display = "none"; }
+function savePrize() {
+  const body = {
+    id: $("z-key").value.trim(),
+    name: $("z-name").value.trim(),
+    points: parseInt($("z-points").value) || 0,
+    weight: Math.max(1, parseInt($("z-weight").value) || 1),
+  };
+  if (!body.id || !body.name) return showMsg("prize-msg", "编号与名称必填", false);
+  apiPost("prizes", body)
+    .then(() => { resetPrizeForm(); loadPrizes(); showMsg("prize-msg", "已保存", true); })
+    .catch(() => {});
+}
+function deletePrize(id) {
+  if (!confirm("确认删除奖池项 " + id + " ？")) return;
+  apiPost("prizes/" + id + "/delete", {})
+    .then(loadPrizes)
+    .catch(() => {});
+}
+
+// ---- 兑换核销 ----
+async function loadRedemptions() {
   try {
-    await apiPost("products/" + id + "/delete", {});
-    productsCache = [];
-    loadProducts();
+    const d = await apiGet("redemptions");
+    const rows = d.rows || [];
+    $("redem-body").innerHTML = rows.length ? rows.map((r) => `<tr>
+      <td><span class="badge">${escapeHtml(r.id)}</span></td>
+      <td>${escapeHtml(r.name || r.user_id)}</td>
+      <td>${escapeHtml(r.product_name)}</td>
+      <td>×${r.count}</td>
+      <td>${r.cost}</td>
+      <td>${escapeHtml(r.time || "")}</td>
+      <td>${r.status === "pending" ? '<span class="badge warn">待核销</span>'
+            : '<span class="badge green">已核销</span>'}</td>
+      <td>${r.status === "pending"
+            ? `<button class="btn sm green" data-act="confirm" data-rid="${escapeHtml(r.id)}">核销</button>`
+            : ""}</td>
+    </tr>`).join("") : '<tr><td colspan="8" class="empty">暂无兑换记录（需勾选「需要核销」的商品才会产生）</td></tr>';
+  } catch (e) {}
+}
+function confirmRedemption(rid) {
+  if (!confirm("确认核销兑换码 " + rid + " ？")) return;
+  apiPost("redemptions/" + rid + "/confirm", {})
+    .then(loadRedemptions)
+    .catch(() => {});
+}
+
+// ---- 审计日志 ----
+async function loadAudit() {
+  try {
+    const d = await apiGet("audit");
+    const rows = d.rows || [];
+    $("audit-body").innerHTML = rows.length ? rows.map((r) => `<tr>
+      <td>${escapeHtml(r.time || "")}</td>
+      <td>${escapeHtml(r.admin_name || r.admin_id || "-")}</td>
+      <td>${escapeHtml(r.action || "")}</td>
+      <td>${escapeHtml(r.detail || "")}</td>
+    </tr>`).join("") : '<tr><td colspan="4" class="empty">暂无记录</td></tr>';
+  } catch (e) {}
+}
+
+// ---- 数据导出 ----
+async function exportData() {
+  try {
+    const d = await apiGet("export");
+    const blob = new Blob([JSON.stringify(d.data, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "points_data_backup_" + new Date().toISOString().slice(0, 10) + ".json";
+    a.click();
+    URL.revokeObjectURL(a.href);
   } catch (e) {}
 }
 
@@ -460,7 +728,22 @@ async function loadSettings() {
     $("s-lotmin").value = s.lottery_min;
     $("s-lotmax").value = s.lottery_max;
     $("s-rank").value = s.rank_top;
+    $("s-usepool").checked = !!s.lottery_use_pool;
+    $("s-tasksign").value = s.task_signin_reward;
+    $("s-tasklot").value = s.task_lottery_reward;
+    $("s-taskchatn").value = s.task_chat_count;
+    $("s-taskchatr").value = s.task_chat_reward;
+    $("s-chatreward").checked = !!s.chat_reward_enabled;
+    $("s-chatper").value = s.chat_points_per_msg;
+    $("s-chatcap").value = s.chat_daily_points;
+    $("s-season").value = (s.season_rewards || []).join(",");
+    $("s-remind").checked = !!s.reminder_enabled;
+    $("s-remindtime").value = s.reminder_time || "21:00";
+    $("s-remindplat").value = s.reminder_platform || "aiocqhttp";
     $("s-whitelist").value = (s.whitelist_groups || []).join(", ");
+    $("s-private").checked = !!s.allow_private;
+    $("s-tz").value = s.timezone_offset;
+    $("s-ach").checked = s.achievements_enabled !== false;
     $("s-admins").value = (s.admin_user_ids || []).join(", ");
     $("s-lotlimit").value = s.lottery_daily_limit || 0;
     $("s-milestones").value = Object.entries(s.milestone_rewards || {})
@@ -469,7 +752,7 @@ async function loadSettings() {
     $("s-image").checked = s.use_image !== false;
   } catch (e) {}
 }
-async function saveSettings() {
+function saveSettings() {
   const body = {
     signin_points: parseInt($("s-signin").value) || 0,
     streak_bonus_max: parseInt($("s-streak").value) || 0,
@@ -477,18 +760,31 @@ async function saveSettings() {
     lottery_min: parseInt($("s-lotmin").value) || 0,
     lottery_max: parseInt($("s-lotmax").value) || 0,
     rank_top: parseInt($("s-rank").value) || 10,
+    lottery_use_pool: $("s-usepool").checked,
+    task_signin_reward: parseInt($("s-tasksign").value) || 0,
+    task_lottery_reward: parseInt($("s-tasklot").value) || 0,
+    task_chat_count: parseInt($("s-taskchatn").value) || 10,
+    task_chat_reward: parseInt($("s-taskchatr").value) || 0,
+    chat_reward_enabled: $("s-chatreward").checked,
+    chat_points_per_msg: parseInt($("s-chatper").value) || 0,
+    chat_daily_points: parseInt($("s-chatcap").value) || 0,
+    season_rewards: $("s-season").value.trim(),
+    reminder_enabled: $("s-remind").checked,
+    reminder_time: $("s-remindtime").value.trim(),
+    reminder_platform: $("s-remindplat").value.trim(),
     whitelist_groups: $("s-whitelist").value.split(/[,，]/).map((x) => x.trim()).filter(Boolean),
+    allow_private: $("s-private").checked,
+    timezone_offset: parseInt($("s-tz").value) || 0,
+    achievements_enabled: $("s-ach").checked,
     admin_user_ids: $("s-admins").value.split(/[,，]/).map((x) => x.trim()).filter(Boolean),
     lottery_daily_limit: parseInt($("s-lotlimit").value) || 0,
     milestone_rewards: $("s-milestones").value.trim(),
     font_path: $("s-font").value.trim(),
     use_image: $("s-image").checked,
   };
-  try {
-    await apiPost("settings", body);
-    showMsg("settings-msg", "设置已保存", true);
-    loadOverview();
-  } catch (e) {}
+  apiPost("settings", body)
+    .then(() => { showMsg("settings-msg", "设置已保存", true); loadOverview(); })
+    .catch(() => {});
 }
 
 function escapeHtml(str) {
@@ -505,6 +801,22 @@ $("user-keyword").addEventListener("keydown", (e) => { if (e.key === "Enter") lo
 $("prod-new").addEventListener("click", () => openProductForm(null));
 $("prod-save").addEventListener("click", saveProduct);
 $("prod-cancel").addEventListener("click", resetProductForm);
+$("prize-new").addEventListener("click", () => openPrizeForm(null));
+$("prize-save").addEventListener("click", savePrize);
+$("prize-cancel").addEventListener("click", resetPrizeForm);
+$("redem-refresh").addEventListener("click", loadRedemptions);
+$("audit-refresh").addEventListener("click", loadAudit);
+$("ov-export").addEventListener("click", exportData);
+$("settings-save").addEventListener("click", saveSettings);
+$("settings-reload").addEventListener("click", loadSettings);
+$("settle-week").addEventListener("click", () =>
+  apiPost("settle", { period: "week" })
+    .then(() => { showMsg("settings-msg", "周榜已结算归档", true); loadOverview(); })
+    .catch(() => {}));
+$("settle-month").addEventListener("click", () =>
+  apiPost("settle", { period: "month" })
+    .then(() => { showMsg("settings-msg", "月榜已结算归档", true); loadOverview(); })
+    .catch(() => {}));
 
 // 用户表格事件委托（避免内联脚本 / 注入）
 $("user-body").addEventListener("click", (e) => {
@@ -521,8 +833,20 @@ $("product-body").addEventListener("click", (e) => {
   if (btn.dataset.act === "edit") openProductForm(id);
   else if (btn.dataset.act === "del") deleteProduct(id);
 });
-$("settings-save").addEventListener("click", saveSettings);
-$("settings-reload").addEventListener("click", loadSettings);
+// 奖池表格事件委托
+$("prize-body").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const id = btn.dataset.prizeid;
+  if (btn.dataset.act === "edit") openPrizeForm(id);
+  else if (btn.dataset.act === "del") deletePrize(id);
+});
+// 核销表格事件委托
+$("redem-body").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  if (btn.dataset.act === "confirm") confirmRedemption(btn.dataset.rid);
+});
 
 // ---- 启动 ----
 (async function init() {
