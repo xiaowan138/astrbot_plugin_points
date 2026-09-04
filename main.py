@@ -346,6 +346,10 @@ class PointsStore:
         """群消息监听回调：累计发言数 / 发言积分 /（任务进度由查询时实时计算）。"""
         s = self.data["settings"]
         async with self.lock:
+            # 未开启发言奖励且用户尚未注册时跳过，避免大群把潜水者都写进数据文件
+            if (self.get_user(group_id, user_id) is None
+                    and not s.get("chat_reward_enabled")):
+                return 0
             user = self._ensure_user(group_id, user_id, name)
             today = self._today().isoformat()
             if user.get("chat_date") != today:
@@ -467,18 +471,23 @@ class PointsStore:
                 "limit": _limit, "achievements": ach}
 
     async def add_points(self, group_id, user_id, name, delta):
-        """管理员调整积分。delta 可为负。"""
+        """管理员调整积分。delta 可为负；扣分最多扣到 0，账目按实际扣减记录。"""
         async with self.lock:
             user = self._ensure_user(group_id, user_id, name)
-            user["points"] = max(0, user["points"] + delta)
-            if delta >= 0:
-                self._earn(user, delta)
+            applied = int(delta)
+            if applied >= 0:
+                user["points"] += applied
+                self._earn(user, applied)
             else:
-                user["total_spent"] = user.get("total_spent", 0) - delta
-            self._record(user, delta, "管理员调整")
+                actual = min(-applied, user["points"])  # 最多扣到 0
+                user["points"] -= actual
+                user["total_spent"] = user.get("total_spent", 0) + actual
+                applied = -actual
+            if applied != 0:
+                self._record(user, applied, "管理员调整")
             ach = self._check_achievements(user)
             self._dump()
-        return {"ok": True, "points": user["points"], "delta": delta,
+        return {"ok": True, "points": user["points"], "delta": applied,
                 "achievements": ach}
 
     async def redeem(self, group_id, user_id, name, product_id, count=1):
@@ -586,14 +595,24 @@ class PointsStore:
         return out[:10]
 
     async def settle_season(self, period, group_id=None):
-        """归档当前周期榜单，发放冠亚季奖励，并清零该周期计数。"""
+        """归档当前周期榜单，发放冠亚季奖励，并清零该周期计数。
+
+        同一周期只允许结算一次；本周期没有任何积分产出时不结算，
+        防止重复结算导致"凭空发奖"。
+        """
         async with self.lock:
-            rewards = self._season_rewards()
-            rows = self.period_ranking(period, group_id, len(rewards))
             kk = "week" if period == "week" else "month"
             kf = "week_points" if period == "week" else "month_points"
             today = self._today()
             label = self._week_key(today) if period == "week" else today.strftime("%Y-%m")
+            for arch in self.data.get("seasons", []):
+                if arch.get("period") == period and arch.get("key") == label:
+                    return {"ok": False, "reason": "already_settled", "key": label}
+            rewards = self._season_rewards()
+            rows = [u for u in self.period_ranking(period, group_id, len(rewards))
+                    if (u.get("period") or {}).get(kf, 0) > 0]
+            if not rows:
+                return {"ok": False, "reason": "no_activity", "key": label}
             arch = {
                 "period": period, "key": label,
                 "time": self._now().isoformat(timespec="seconds"),
@@ -604,6 +623,7 @@ class PointsStore:
             for u, r in zip(rows, rewards):
                 if r > 0:
                     u["points"] += r
+                    self._earn(u, r)
                     self._record(u, r, f"{'周' if period == 'week' else '月'}榜赛季奖励")
                     granted.append({"name": u.get("name"), "reward": r})
             for u in self.data["users"].values():
@@ -643,13 +663,20 @@ class PointsStore:
                 "achievements": ach_f + ach_t}
 
     async def backfill_signin(self, group_id, user_id, name):
-        """管理员补签到：发一份基础签到积分；当日已签则不重复发放。"""
+        """管理员补签到：与正常签到一致地累计连续天数并发放奖励。"""
         async with self.lock:
             user = self._ensure_user(group_id, user_id, name)
             today = self._today().isoformat()
+            yesterday = (self._today() - timedelta(days=1)).isoformat()
             if user["last_signin"] == today:
                 return {"ok": False, "reason": "already", "points": user["points"]}
-            reward = int(self.data["settings"].get("signin_points", 10))
+            user["streak"] = user["streak"] + 1 if user["last_signin"] == yesterday else 1
+            base = int(self.data["settings"].get("signin_points", 10))
+            bonus = min(max(user["streak"] - 1, 0),
+                        int(self.data["settings"].get("streak_bonus_max", 7)))
+            _config = self.data["settings"].get("milestone_rewards") or {}
+            milestone_bonus = int(_config.get(str(user["streak"]), 0) or 0)
+            reward = base + bonus + milestone_bonus
             user["points"] += reward
             user["signin_count"] += 1
             self._earn(user, reward)
@@ -658,7 +685,7 @@ class PointsStore:
             ach = self._check_achievements(user)
             self._dump()
         return {"ok": True, "reward": reward, "points": user["points"],
-                "achievements": ach}
+                "streak": user["streak"], "achievements": ach}
 
     async def reset_user(self, group_id, user_id):
         """清空一个用户的全部群积分数据。"""
@@ -720,14 +747,18 @@ class PointsStore:
                              "lottery_use_pool"):
                     self.data["settings"][key] = bool(value)
                 elif key == "timezone_offset":
-                    self.data["settings"][key] = max(-12, min(14, int(value)))
+                    v = self._safe_int(value)
+                    if v is not None:
+                        self.data["settings"][key] = max(-12, min(14, v))
                 elif key in ("signin_points", "streak_bonus_max", "lottery_cost",
                              "lottery_min", "lottery_max", "rank_top",
                              "lottery_daily_limit", "task_chat_count",
                              "task_chat_reward", "task_lottery_reward",
                              "task_signin_reward", "chat_points_per_msg",
                              "chat_daily_points"):
-                    self.data["settings"][key] = max(0, int(value))
+                    v = self._safe_int(value)
+                    if v is not None:
+                        self.data["settings"][key] = max(0, v)
             # 抽奖区间保护：min 不能大于 max
             s = self.data["settings"]
             if int(s.get("lottery_min", 0)) > int(s.get("lottery_max", 0)):
@@ -746,6 +777,14 @@ class PointsStore:
             except (TypeError, ValueError):
                 continue
         return out[:10]
+
+    @staticmethod
+    def _safe_int(value):
+        """解析整数；非法输入返回 None（调用方据此跳过该项，保留原值）。"""
+        try:
+            return int(str(value).strip())
+        except (TypeError, ValueError):
+            return None
 
     async def upsert_product(self, product: dict):
         async with self.lock:
@@ -863,10 +902,10 @@ class PointsPlugin(Star):
             self._bg_task = None
 
     async def _reminder_loop(self):
-        """每分钟检查一次是否到达提醒时间。"""
+        """每 30 秒检查一次是否到达提醒时间（配 2 分钟容忍窗口，不会漏发）。"""
         while True:
             try:
-                await asyncio.sleep(60)
+                await asyncio.sleep(30)
                 await self._try_remind()
             except asyncio.CancelledError:
                 return
@@ -877,11 +916,17 @@ class PointsPlugin(Star):
         s = self.store.data["settings"]
         if not s.get("reminder_enabled"):
             return
-        now = self.store._now()
-        today = now.date().isoformat()
         target = str(s.get("reminder_time", "21:00"))
-        if now.strftime("%H:%M") != target:
+        m = re.fullmatch(r"(\d{1,2}):(\d{2})", target)
+        if not m:
             return
+        now = self.store._now()
+        # 容忍窗口：轮询间隔漂移也不会跳过目标分钟
+        target_min = int(m.group(1)) * 60 + int(m.group(2))
+        now_min = now.hour * 60 + now.minute
+        if not 0 <= now_min - target_min < 2:
+            return
+        today = now.date().isoformat()
         if self._last_reminder_day == today:
             return
         self._last_reminder_day = today
@@ -1476,6 +1521,12 @@ class PointsPlugin(Star):
         period = "week" if str(period).strip() in ("周", "周榜", "week") else "month"
         label = "周榜" if period == "week" else "月榜"
         result = await self.store.settle_season(period, group_id or None)
+        if not result.get("ok"):
+            if result.get("reason") == "already_settled":
+                yield self._plain(event, f"{label}（{result['key']}）已结算过，请勿重复结算。")
+            else:
+                yield self._plain(event, f"{label}（{result['key']}）本周期没有积分产出，无需结算。")
+            return
         arch = result["archived"]
         self.store.add_audit(user_id, event.get_sender_name() or "",
                              "赛季结算", f"{label} {arch['key']}")
@@ -1700,7 +1751,7 @@ class PointsPlugin(Star):
         if err:
             return err
         return json_response({"data": self.store.data,
-                              "exported_at": datetime.now().isoformat(timespec="seconds")})
+                              "exported_at": self.store._now().isoformat(timespec="seconds")})
 
     async def api_settle(self):
         err = self._guard()

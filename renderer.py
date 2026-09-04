@@ -103,7 +103,8 @@ class CardRenderer:
         title_font = self.ImageFont.truetype(font_path, 30)
 
         top = min(len(rows), 20)
-        width, height = 640, 150 + top * 52
+        more = len(rows) - top
+        width, height = 640, 150 + top * 52 + (44 if more else 0)
         img = self._new_canvas(width, height)
         draw = self.ImageDraw.Draw(img)
 
@@ -115,6 +116,9 @@ class CardRenderer:
 
         max_points = max((int(u.get("points", 0)) for u in rows[:top]), default=1)
         self._draw_ranking_rows(draw, md, sm, rows, top, 170, max_points)
+        if more:
+            draw.text((40, 164 + top * 52), f"…还有 {more} 名未展示",
+                      font=sm, fill=_MUTED)
         return self._save(img, "ranking")
 
     def render_profile(self, user, subtitle=""):

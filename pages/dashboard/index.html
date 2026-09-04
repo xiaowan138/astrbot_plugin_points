@@ -809,14 +809,23 @@ $("audit-refresh").addEventListener("click", loadAudit);
 $("ov-export").addEventListener("click", exportData);
 $("settings-save").addEventListener("click", saveSettings);
 $("settings-reload").addEventListener("click", loadSettings);
-$("settle-week").addEventListener("click", () =>
-  apiPost("settle", { period: "week" })
-    .then(() => { showMsg("settings-msg", "周榜已结算归档", true); loadOverview(); })
-    .catch(() => {}));
-$("settle-month").addEventListener("click", () =>
-  apiPost("settle", { period: "month" })
-    .then(() => { showMsg("settings-msg", "月榜已结算归档", true); loadOverview(); })
-    .catch(() => {}));
+function settleSeason(period, label) {
+  if (!confirm("确认结算" + label + "？将归档当前榜单并向前列用户发放奖励。")) return;
+  apiPost("settle", { period })
+    .then((d) => {
+      if (d && d.ok === false) {
+        const txt = d.reason === "already_settled" ? "本周期已结算过，请勿重复结算"
+          : d.reason === "no_activity" ? "本周期没有积分产出，无需结算" : "结算失败";
+        showMsg("settings-msg", txt, false);
+        return;
+      }
+      showMsg("settings-msg", label + "已结算归档", true);
+      loadOverview();
+    })
+    .catch(() => {});
+}
+$("settle-week").addEventListener("click", () => settleSeason("week", "周榜"));
+$("settle-month").addEventListener("click", () => settleSeason("month", "月榜"));
 
 // 用户表格事件委托（避免内联脚本 / 注入）
 $("user-body").addEventListener("click", (e) => {
