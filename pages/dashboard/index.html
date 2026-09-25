@@ -164,11 +164,14 @@
       <input type="text" id="user-keyword" class="text-input" placeholder="搜索昵称或用户 ID" />
       <select id="user-group"><option value="">全部群</option></select>
       <button class="btn" id="user-refresh">搜索</button>
+      <button class="btn ghost" id="user-cleanup">清理沉睡用户</button>
     </div>
+    <label style="display:block;margin-bottom:8px">「清理沉睡用户」会删除「积分为 0 且从未签到」的记录，先预览再确认；当前列表显示上限 200 人。</label>
     <table>
       <thead><tr><th>昵称</th><th>用户 ID</th><th>群 ID</th><th>积分</th><th>连续签到</th><th>操作</th></tr></thead>
       <tbody id="user-body"></tbody>
     </table>
+    <div class="msg" id="user-msg"></div>
   </div>
 </section>
 
@@ -180,7 +183,7 @@
       <button class="btn" id="prod-new">＋ 新增商品</button>
     </div>
     <table>
-      <thead><tr><th>图标</th><th>名称</th><th>描述</th><th>价格</th><th>库存</th><th>需核销</th><th>操作</th></tr></thead>
+      <thead><tr><th>图标</th><th>名称</th><th>描述</th><th>价格</th><th>库存</th><th>需核销</th><th>状态</th><th>操作</th></tr></thead>
       <tbody id="product-body"></tbody>
     </table>
     <div class="item-form" id="product-form" style="display:none">
@@ -200,6 +203,10 @@
           <input type="checkbox" id="p-verify" />
           <label for="p-verify">需要管理员核销（生成兑换码）</label>
         </div>
+      </div>
+      <div class="check-row" style="margin-top:10px">
+        <input type="checkbox" id="p-enabled" checked />
+        <label for="p-enabled">上架（取消勾选即下架，群内 /商店 不再展示、无法兑换）</label>
       </div>
       <div style="margin-top:10px"><label>描述</label><textarea id="p-desc" placeholder="兑换后能获得什么，展示给群友看"></textarea></div>
       <div class="row" style="margin:12px 0 0">
@@ -284,11 +291,14 @@
     <div class="row" style="margin-top:10px">
       <input type="number" id="s-lotmin" class="text-input" placeholder="抽奖最小奖励" min="0" />
       <input type="number" id="s-lotmax" class="text-input" placeholder="抽奖最大奖励" min="0" />
+      <label>保底次数（0 = 关闭）</label>
+      <input type="number" id="s-pity" min="0" style="width:90px" value="0" />
       <div class="check-row">
         <input type="checkbox" id="s-usepool" />
         <label for="s-usepool">使用自定义奖池</label>
       </div>
     </div>
+    <label style="display:block;margin-top:8px">保底：连续 N 次未抽到最高奖励后，下一次必中最高奖励（开启奖池时按奖池中积分最高的奖品）。</label>
   </div>
   <div class="panel">
     <h2>每日任务与发言奖励</h2>
@@ -320,6 +330,19 @@
       </div>
     </div>
     <label style="display:block;margin-top:8px">结算会归档当前榜单、给前三名发奖，并把本期计数清零。</label>
+    <div class="row" style="margin-top:10px">
+      <div class="check-row">
+        <input type="checkbox" id="s-autosettle" />
+        <label for="s-autosettle">自动结算（周日结周榜 / 月末结月榜）</label>
+      </div>
+      <label>检查时间</label><input type="text" id="s-settletime" placeholder="23:55" style="width:90px" />
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label>结算后回收积分比例（%，0 = 不回收）</label>
+      <input type="number" id="s-decay" min="0" max="100" style="width:90px" value="0" />
+      <button class="btn ghost" id="decay-run">立即按比例回收</button>
+    </div>
+    <label>回收按当前余额计算，用于控制积分通胀；操作会记入审计日志。</label>
   </div>
   <div class="panel">
     <h2>签到提醒（可选）</h2>
@@ -347,6 +370,33 @@
       <div class="check-row">
         <input type="checkbox" id="s-ach" />
         <label for="s-ach">启用成就系统</label>
+      </div>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>安全、权限与数据</h2>
+    <div class="grid2">
+      <div><label>排行榜最低积分门槛（0 = 不过滤）</label>
+        <input type="number" id="s-rankmin" min="0" style="width:120px" value="0" /></div>
+      <div><label>兑换码有效期（天，0 = 不过期）</label>
+        <input type="number" id="s-expire" min="0" style="width:120px" value="0" /></div>
+    </div>
+    <div style="margin-top:10px">
+      <label>黑名单用户 ID（英文逗号分隔，被拉黑者无法使用任何积分指令）</label>
+      <input type="text" id="s-blacklist" class="text-input" style="width:100%" placeholder="空 = 无黑名单" />
+    </div>
+    <div style="margin-top:10px">
+      <label>面板操作白名单（AstrBot 登录用户名，英文逗号分隔，留空 = 任意已登录用户）</label>
+      <input type="text" id="s-panelusers" class="text-input" style="width:100%" placeholder="空 = 不限制" />
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div class="check-row">
+        <input type="checkbox" id="s-achbcast" />
+        <label for="s-achbcast">解锁成就时在回复中播报</label>
+      </div>
+      <div class="check-row">
+        <input type="checkbox" id="s-backup" />
+        <label for="s-backup">启动时自动轮转备份数据（保留最近 7 份）</label>
       </div>
     </div>
   </div>
@@ -470,17 +520,29 @@ async function loadOverview() {
       achievements_enabled: "成就系统",
       font_path: "图片中文字体",
       use_image: "图片输出",
+      lottery_pity: "抽奖保底次数",
+      rank_min_points: "排行榜积分门槛",
+      redemption_expire_days: "兑换码有效期(天)",
+      season_auto_settle: "赛季自动结算",
+      points_decay_percent: "结算后回收(%)",
+      blacklist_user_ids: "黑名单",
+      panel_usernames: "面板操作白名单",
+      achievement_broadcast: "成就播报",
+      auto_backup: "自动备份",
     };
     let html = "";
     for (const key of Object.keys(map)) {
       let val = d.settings[key];
       if (key === "whitelist_groups") val = (val && val.length) ? val.join(", ") : "不限制";
       if (key === "admin_user_ids") val = (val && val.length) ? val.join(", ") : "（群主/管理员）";
+      if (key === "blacklist_user_ids") val = (val && val.length) ? val.join(", ") : "无";
+      if (key === "panel_usernames") val = (val && val.length) ? val.join(", ") : "不限制";
       if (key === "milestone_rewards") val = Object.entries(val || {})
         .map(([d, v]) => d + ":" + v).join(", ") || "无";
       if (key === "season_rewards") val = (val || []).join(", ") || "无";
       if (["use_image", "allow_private", "chat_reward_enabled", "reminder_enabled",
-           "achievements_enabled", "lottery_use_pool"].includes(key)) {
+           "achievements_enabled", "lottery_use_pool", "season_auto_settle",
+           "achievement_broadcast", "auto_backup"].includes(key)) {
         val = val ? "开启" : "关闭";
       }
       html += `<tr><td>${map[key]}</td><td>${escapeHtml(String(val))}</td></tr>`;
@@ -536,6 +598,7 @@ async function loadUsers() {
       <td>
         <button class="btn sm" data-act="add" data-uid="${escapeHtml(u.user_id)}" data-gid="${escapeHtml(u.group_id || "")}">+10</button>
         <button class="btn sm danger" data-act="sub" data-uid="${escapeHtml(u.user_id)}" data-gid="${escapeHtml(u.group_id || "")}">-10</button>
+        <button class="btn sm ghost" data-act="set" data-uid="${escapeHtml(u.user_id)}" data-gid="${escapeHtml(u.group_id || "")}" data-name="${escapeHtml(u.name || "")}" data-points="${u.points}">改分</button>
       </td>
     </tr>`).join("") : '<tr><td colspan="6" class="empty">没有匹配的用户</td></tr>';
   } catch (e) {}
@@ -543,6 +606,28 @@ async function loadUsers() {
 function adjust(userId, delta, groupId) {
   apiPost("users/adjust", { user_id: userId, delta, group_id: groupId })
     .then(loadUsers)
+    .catch(() => {});
+}
+function setPoints(userId, name, groupId, current) {
+  const input = prompt(`把「${name || userId}」的积分直接设为（当前 ${current}）：`, current);
+  if (input === null) return;
+  const value = parseInt(input, 10);
+  if (Number.isNaN(value) || value < 0) {
+    return showMsg("user-msg", "请输入不小于 0 的整数", false);
+  }
+  apiPost("users/set", { user_id: userId, name, group_id: groupId, points: value })
+    .then(() => { showMsg("user-msg", "积分已设定", true); loadUsers(); loadOverview(); })
+    .catch(() => {});
+}
+function cleanupUsers() {
+  const gid = $("user-group").value;
+  apiPost("users/cleanup", { group_id: gid, dry_run: true })
+    .then((d) => {
+      if (!d.count) return showMsg("user-msg", "没有可清理的沉睡用户", true);
+      if (!confirm(`将清理 ${d.count} 个「0 积分且从未签到」的用户，确认删除？`)) return;
+      return apiPost("users/cleanup", { group_id: gid, dry_run: false })
+        .then((r) => { showMsg("user-msg", `已清理 ${r.count} 个沉睡用户`, true); loadUsers(); loadOverview(); });
+    })
     .catch(() => {});
 }
 
@@ -560,11 +645,14 @@ async function loadProducts() {
       <td>${p.stock === -1 ? '<span class="badge">不限量</span>'
             : p.stock === 0 ? '<span class="badge warn">缺货</span>' : p.stock}</td>
       <td>${p.need_verify ? '<span class="badge warn">需核销</span>' : '<span class="badge">直发</span>'}</td>
+      <td>${p.enabled === false ? '<span class="badge warn">已下架</span>'
+            : '<span class="badge green">上架中</span>'}</td>
       <td>
         <button class="btn sm ghost" data-act="edit" data-prodid="${escapeHtml(p.id)}">编辑</button>
+        <button class="btn sm ghost" data-act="toggle" data-prodid="${escapeHtml(p.id)}">${p.enabled === false ? "上架" : "下架"}</button>
         <button class="btn sm danger" data-act="del" data-prodid="${escapeHtml(p.id)}">删除</button>
       </td>
-    </tr>`).join("") : '<tr><td colspan="7" class="empty">还没有商品，点击右下角新增</td></tr>';
+    </tr>`).join("") : '<tr><td colspan="8" class="empty">还没有商品，点击右下角新增</td></tr>';
   } catch (e) {}
 }
 
@@ -581,12 +669,14 @@ function openProductForm(id) {
   $("p-stock").value = p ? p.stock : -1;
   $("p-desc").value = p ? p.desc || "" : "";
   $("p-verify").checked = p ? !!p.need_verify : false;
+  $("p-enabled").checked = p ? p.enabled !== false : true;
 }
 function resetProductForm() {
   $("product-form").style.display = "none";
   ["p-id", "p-key", "p-icon", "p-name", "p-cost", "p-stock", "p-desc"].forEach(
     (i) => $(i).value = i === "p-stock" ? "-1" : "");
   $("p-verify").checked = false;
+  $("p-enabled").checked = true;
 }
 function saveProduct() {
   let stock = parseInt($("p-stock").value, 10);
@@ -599,10 +689,18 @@ function saveProduct() {
     stock,
     desc: $("p-desc").value.trim(),
     need_verify: $("p-verify").checked,
+    enabled: $("p-enabled").checked,
   };
   if (!body.id || !body.name) return showMsg("prod-msg", "编号与名称必填", false);
   apiPost("products", body)
     .then(() => { resetProductForm(); loadProducts(); showMsg("prod-msg", "已保存", true); })
+    .catch(() => {});
+}
+function toggleProduct(id) {
+  const p = productsCache.find((x) => x.id === id);
+  if (!p) return;
+  apiPost("products", Object.assign({}, p, { enabled: p.enabled === false }))
+    .then(loadProducts)
     .catch(() => {});
 }
 function deleteProduct(id) {
@@ -750,6 +848,16 @@ async function loadSettings() {
       .map(([d, v]) => d + ":" + v).join(",");
     $("s-font").value = s.font_path || "";
     $("s-image").checked = s.use_image !== false;
+    $("s-pity").value = s.lottery_pity || 0;
+    $("s-autosettle").checked = !!s.season_auto_settle;
+    $("s-settletime").value = s.season_settle_time || "23:55";
+    $("s-decay").value = s.points_decay_percent || 0;
+    $("s-rankmin").value = s.rank_min_points || 0;
+    $("s-expire").value = s.redemption_expire_days || 0;
+    $("s-blacklist").value = (s.blacklist_user_ids || []).join(", ");
+    $("s-panelusers").value = (s.panel_usernames || []).join(", ");
+    $("s-achbcast").checked = s.achievement_broadcast !== false;
+    $("s-backup").checked = s.auto_backup !== false;
   } catch (e) {}
 }
 function saveSettings() {
@@ -781,6 +889,16 @@ function saveSettings() {
     milestone_rewards: $("s-milestones").value.trim(),
     font_path: $("s-font").value.trim(),
     use_image: $("s-image").checked,
+    lottery_pity: parseInt($("s-pity").value) || 0,
+    season_auto_settle: $("s-autosettle").checked,
+    season_settle_time: $("s-settletime").value.trim(),
+    points_decay_percent: parseInt($("s-decay").value) || 0,
+    rank_min_points: parseInt($("s-rankmin").value) || 0,
+    redemption_expire_days: parseInt($("s-expire").value) || 0,
+    blacklist_user_ids: $("s-blacklist").value.split(/[,，]/).map((x) => x.trim()).filter(Boolean),
+    panel_usernames: $("s-panelusers").value.split(/[,，]/).map((x) => x.trim()).filter(Boolean),
+    achievement_broadcast: $("s-achbcast").checked,
+    auto_backup: $("s-backup").checked,
   };
   apiPost("settings", body)
     .then(() => { showMsg("settings-msg", "设置已保存", true); loadOverview(); })
@@ -826,20 +944,38 @@ function settleSeason(period, label) {
 }
 $("settle-week").addEventListener("click", () => settleSeason("week", "周榜"));
 $("settle-month").addEventListener("click", () => settleSeason("month", "月榜"));
+$("decay-run").addEventListener("click", () => {
+  const pct = parseInt($("s-decay").value) || 0;
+  if (pct <= 0 || pct > 100) return showMsg("settings-msg", "请输入 1~100 的回收比例", false);
+  if (!confirm(`将按当前余额回收 ${pct}% 积分，此操作不可撤销，确认执行？`)) return;
+  apiPost("decay", { percent: pct })
+    .then((d) => {
+      if (d && d.ok === false) return showMsg("settings-msg", "回收比例无效", false);
+      showMsg("settings-msg", `已回收 ${d.recovered} 积分（影响 ${d.affected} 人）`, true);
+      loadOverview();
+    })
+    .catch(() => {});
+});
 
 // 用户表格事件委托（避免内联脚本 / 注入）
 $("user-body").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-act]");
   if (!btn) return;
+  if (btn.dataset.act === "set") {
+    setPoints(btn.dataset.uid, btn.dataset.name, btn.dataset.gid, btn.dataset.points);
+    return;
+  }
   const delta = btn.dataset.act === "sub" ? -10 : 10;
   adjust(btn.dataset.uid, delta, btn.dataset.gid);
 });
+$("user-cleanup").addEventListener("click", cleanupUsers);
 // 商品表格事件委托
 $("product-body").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-act]");
   if (!btn) return;
   const id = btn.dataset.prodid;
   if (btn.dataset.act === "edit") openProductForm(id);
+  else if (btn.dataset.act === "toggle") toggleProduct(id);
   else if (btn.dataset.act === "del") deleteProduct(id);
 });
 // 奖池表格事件委托
